@@ -21,6 +21,7 @@ name: UI End-to-End Tests
 
 permissions:
   contents: read
+  id-token: write
 on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
     inputs:
@@ -55,6 +56,14 @@ on:  # yamllint disable-line rule:truthy
 
   workflow_call:
     inputs:
+      chalk_on:
+        description: "racecar: instrumented arm switch, passed down by the caller"
+        type: string
+        default: "false"
+      profile:
+        description: "CrashOverride chalk profile"
+        type: string
+        default: curiosity-tests-racecar
       workflow-name:
         description: "Name of the test"
         type: string
@@ -84,6 +93,11 @@ on:  # yamllint disable-line rule:truthy
         type: string
         default: "all"
 
+env:
+  # The one variable that separates the arms: on baseline, action-checkout
+  # skips its Set up Chalk step entirely.
+  CHALK_ON: ${{ inputs.chalk_on }}
+
 jobs:
   test-ui-e2e-tests:
     timeout-minutes: 90
@@ -103,10 +117,20 @@ jobs:
         shell: bash
         run: sudo rm -rf ${GITHUB_WORKSPACE}/*
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: crashappsec/action-checkout@main
         with:
+          chalk: ${{ env.CHALK_ON }}
+          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+          observables_continue_on_error: false
+          lfs: false
           fetch-depth: 2
           persist-credentials: false
+      - name: Assert instrumentation is live
+        if: env.CHALK_ON == 'true'
+        run: |
+          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
+          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+
       - name: "Prepare breeze & PROD image: ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
         uses: ./.github/actions/prepare_breeze_and_image
         with:
