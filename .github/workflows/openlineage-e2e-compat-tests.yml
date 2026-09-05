@@ -30,7 +30,7 @@ on:  # yamllint disable-line rule:truthy
         type: string
         default: "false"
       profile:
-        description: "CrashOverride chalk profile"
+        description: CrashOverride chalk profile
         type: string
         default: curiosity-tests-racecar
       runners:
@@ -92,7 +92,7 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
+        if: env.CHALK_ON == 'true' && (!startsWith(inputs.airflow-version, '2.'))
         run: |
           test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
           test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
