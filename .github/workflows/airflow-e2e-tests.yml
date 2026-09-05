@@ -65,7 +65,7 @@ on:  # yamllint disable-line rule:truthy
         type: string
         default: "false"
       profile:
-        description: "CrashOverride chalk profile"
+        description: CrashOverride chalk profile
         type: string
         default: curiosity-tests-racecar
       workflow-name:
