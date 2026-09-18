@@ -1,21 +1,3 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
----
 name: Unit tests
 on:  # yamllint disable-line rule:truthy
   workflow_call:
@@ -155,12 +137,7 @@ jobs:
     # run_unit_tests.sh derives the tests' own timeout from what is left of this budget.
     timeout-minutes: ${{ fromJSON(inputs.job-timeout-minutes) }}
     # yamllint disable rule:line-length
-    name: "\
-      ${{ case(inputs.test-scope == 'Quarantined', 'Qrnt', inputs.test-scope == 'All', '', inputs.test-scope) }}\
-      ${{ case(inputs.test-scope == 'All', '', '-') }}\
-      ${{ inputs.test-group == 'providers' && 'prov' || inputs.test-group}}:\
-      ${{ inputs.test-name }}${{ inputs.test-name-separator }}${{ matrix.backend-version }}:\
-      ${{ matrix.python-version}}:${{ matrix.test-types.description }}"
+    name: "${{ case(inputs.test-scope == 'Quarantined', 'Qrnt', inputs.test-scope == 'All', '', inputs.test-scope) }}${{ case(inputs.test-scope == 'All', '', '-') }}${{ inputs.test-group == 'providers' && 'prov' || inputs.test-group}}:${{ inputs.test-name }}${{ inputs.test-name-separator }}${{ matrix.backend-version }}:${{ matrix.python-version}}:${{ matrix.test-types.description }}"
     runs-on: ${{ fromJSON(inputs.runners) }}
     strategy:
       fail-fast: false
@@ -199,59 +176,130 @@ jobs:
       JOB_TIMEOUT_MINUTES: "${{ inputs.job-timeout-minutes }}"
     if: inputs.test-group == 'core' || inputs.skip-providers-tests != 'true'
     steps:
-      - name: "Record job start time"
-        shell: bash
-        run: echo "JOB_START_EPOCH=$(date +%s)" >> "${GITHUB_ENV}"
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
-
-      - name: "Make /mnt writeable"
-        run: ./scripts/ci/make_mnt_writeable.sh
-      - name: "Move docker to /mnt"
-        run: ./scripts/ci/move_docker_to_mnt.sh
-      - name: "Prepare breeze & CI image: ${{ matrix.python-version }}"
-        uses: ./.github/actions/prepare_breeze_and_image
-        with:
-          platform: ${{ inputs.platform }}
-          python: ${{ matrix.python-version }}
-          use-uv: ${{ inputs.use-uv }}
+    - name: "Record job start time"
+      shell: bash
+      run: echo "JOB_START_EPOCH=$(date +%s)" >> "${GITHUB_ENV}"
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Make /mnt writeable"
+      run: ./scripts/ci/make_mnt_writeable.sh
+    - name: "Move docker to /mnt"
+      run: ./scripts/ci/move_docker_to_mnt.sh
+    - name: "Prepare breeze & CI image: ${{ matrix.python-version }}"
+      uses: ./.github/actions/prepare_breeze_and_image
+      with:
+        platform: ${{ inputs.platform }}
+        python: ${{ matrix.python-version }}
+        use-uv: ${{ inputs.use-uv }}
           # We do not want to clean up /mnt here - it's been already done before preparing image
-          make-mnt-writeable-and-cleanup: false
-      - name: >
-          Migration Tests: ${{ matrix.python-version }}:${{ env.PARALLEL_TEST_TYPES }}
-        uses: ./.github/actions/migration_tests
-        with:
-          python-version: ${{ matrix.python-version }}
+        make-mnt-writeable-and-cleanup: false
+    - name: >
+        Migration Tests: ${{ matrix.python-version }}:${{ env.PARALLEL_TEST_TYPES }}
+      uses: ./.github/actions/migration_tests
+      with:
+        python-version: ${{ matrix.python-version }}
         # Any new python version should be disabled below via `&& matrix.python-version != '3.xx'` until the first
         # Airflow version that supports it is released - otherwise there's nothing to migrate back to.
-        if: inputs.run-migration-tests == 'true' && inputs.test-group == 'core' && matrix.python-version != '3.14'
-      - name: >
-          ${{ inputs.test-group }}:${{ inputs.test-scope }} Tests ${{ inputs.test-name }} ${{ matrix.backend-version }}
-          Py${{ matrix.python-version }}:${{ env.PARALLEL_TEST_TYPES }}
-        env:
-          TEST_GROUP: "${{ inputs.test-group }}"
-          TEST_SCOPE: "${{ inputs.test-scope }}"
-        run: ./scripts/ci/testing/run_unit_tests.sh "${TEST_GROUP}" "${TEST_SCOPE}"
-      - name: "Post Tests success"
-        uses: ./.github/actions/post_tests_success
-        with:
-          codecov-token: ${{ secrets.CODECOV_TOKEN }}
-          python-version: ${{ matrix.python-version }}
-        if: success()
-      - name: "Post Tests failure"
-        uses: ./.github/actions/post_tests_failure
-        if: failure() || cancelled()
+      if: inputs.run-migration-tests == 'true' && inputs.test-group == 'core' && matrix.python-version != '3.14'
+    - name: >
+        ${{ inputs.test-group }}:${{ inputs.test-scope }} Tests ${{ inputs.test-name }} ${{ matrix.backend-version }}
+        Py${{ matrix.python-version }}:${{ env.PARALLEL_TEST_TYPES }}
+      env:
+        TEST_GROUP: "${{ inputs.test-group }}"
+        TEST_SCOPE: "${{ inputs.test-scope }}"
+      run: ./scripts/ci/testing/run_unit_tests.sh "${TEST_GROUP}" "${TEST_SCOPE}"
+    - name: "Post Tests success"
+      uses: ./.github/actions/post_tests_success
+      with:
+        codecov-token: ${{ secrets.CODECOV_TOKEN }}
+        python-version: ${{ matrix.python-version }}
+      if: success()
+    - name: "Post Tests failure"
+      uses: ./.github/actions/post_tests_failure
+      if: failure() || cancelled()
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"

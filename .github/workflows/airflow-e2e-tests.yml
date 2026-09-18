@@ -1,21 +1,3 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
----
 
 name: Airflow E2E Tests
 
@@ -118,33 +100,27 @@ jobs:
       GITHUB_USERNAME: ${{ github.actor }}
       VERBOSE: "true"
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          fetch-depth: 2
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
-
-      - name: "Prepare breeze & PROD image: ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
-        uses: ./.github/actions/prepare_breeze_and_image
-        with:
-          platform: ${{ inputs.platform }}
-          image-type: "prod"
-          python: ${{ env.PYTHON_MAJOR_MINOR_VERSION }}
-          use-uv: ${{ inputs.use-uv }}
-          make-mnt-writeable-and-cleanup: true
-        id: breeze
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        fetch-depth: 2
+        persist-credentials: false
+    - name: "Prepare breeze & PROD image: ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
+      uses: ./.github/actions/prepare_breeze_and_image
+      with:
+        platform: ${{ inputs.platform }}
+        image-type: "prod"
+        python: ${{ env.PYTHON_MAJOR_MINOR_VERSION }}
+        use-uv: ${{ inputs.use-uv }}
+        make-mnt-writeable-and-cleanup: true
+      id: breeze
       # The java_sdk mode runs the Gradle builds, the go_sdk mode runs the Go
       # build and the ts_sdk mode runs the pnpm build; every other e2e mode
       # skips the toolchain steps below.
@@ -157,96 +133,173 @@ jobs:
       # each java_sdk run re-downloads the example bundles' full dependency tree
       # (Spark alone is ~1GB) into a fresh ~/.gradle, whose ~/.gradle/jdks holds
       # arch-specific auto-provisioned JDKs (the example pins a Java 11 toolchain).
-      - name: "Setup Java for the Java SDK build"
-        if: inputs.e2e_test_mode == 'java_sdk'
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c  # v6.0.0
-        with:
-          distribution: 'temurin'
-          java-version: ${{ inputs.java-sdk-version }}
-      - name: "Restore Java SDK Gradle dependency cache"
-        if: inputs.e2e_test_mode == 'java_sdk'
-        id: gradle-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.gradle/jdks
-            !~/.gradle/caches/*.lock
-            !~/.gradle/caches/journal-1
-          key: e2e-java-sdk-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('java-sdk/**/*.gradle*', 'java-sdk/**/gradle.properties', 'java-sdk/gradle/wrapper/gradle-wrapper.properties', 'java-sdk/gradle/libs.versions.toml') }}  # yamllint disable-line rule:line-length
-          restore-keys: |
-            e2e-java-sdk-gradle-v1-${{ runner.os }}-${{ runner.arch }}-
+    - name: "Setup Java for the Java SDK build"
+      if: inputs.e2e_test_mode == 'java_sdk'
+      uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c    # v6.0.0
+      with:
+        distribution: 'temurin'
+        java-version: ${{ inputs.java-sdk-version }}
+    - name: "Restore Java SDK Gradle dependency cache"
+      if: inputs.e2e_test_mode == 'java_sdk'
+      id: gradle-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9    # v6.1.0
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.gradle/jdks
+          !~/.gradle/caches/*.lock
+          !~/.gradle/caches/journal-1
+        key: e2e-java-sdk-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('java-sdk/**/*.gradle*', 'java-sdk/**/gradle.properties', 'java-sdk/gradle/wrapper/gradle-wrapper.properties', 'java-sdk/gradle/libs.versions.toml') }}    # yamllint disable-line rule:line-length
+        restore-keys: |
+          e2e-java-sdk-gradle-v1-${{ runner.os }}-${{ runner.arch }}-
       # go-version-file sources the Go toolchain from go-sdk/go.mod, so there is no
       # separate version pin to keep in sync; cache: false because the explicit
       # restore/save pair below persists the module + build caches even on red runs.
-      - name: "Setup Go for the Go SDK build"
-        if: inputs.e2e_test_mode == 'go_sdk'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
-        with:
-          go-version-file: go-sdk/go.mod
-          cache: false
-      - name: "Restore Go SDK module + build cache"
-        if: inputs.e2e_test_mode == 'go_sdk'
-        id: go-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: e2e-go-sdk-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go-sdk/go.mod', 'go-sdk/go.sum') }}  # yamllint disable-line rule:line-length
-          restore-keys: |
-            e2e-go-sdk-go-v1-${{ runner.os }}-${{ runner.arch }}-
-      - name: "Setup pnpm for the TypeScript SDK build"
-        if: inputs.e2e_test_mode == 'ts_sdk'
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86  # v6.0.10
-        with:
-          package_json_file: ts-sdk/package.json
-          run_install: false
-      - name: "Setup Node for the TypeScript SDK build"
-        if: inputs.e2e_test_mode == 'ts_sdk'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
-        with:
-          node-version: 22
-          cache: 'pnpm'
-          cache-dependency-path: 'ts-sdk/pnpm-lock.yaml'
-      - name: "Test e2e integration tests"
-        run: breeze testing airflow-e2e-tests
-        env:
-          DOCKER_IMAGE: "${{ inputs.docker-image-tag }}"
-          E2E_TEST_MODE: "${{ inputs.e2e_test_mode }}"
-          LANG_SDK_NATIVE_TOOLCHAIN: "${{ (inputs.e2e_test_mode == 'java_sdk' || inputs.e2e_test_mode == 'go_sdk' || inputs.e2e_test_mode == 'ts_sdk') && 'true' || 'false' }}"  # yamllint disable-line rule:line-length
-      - name: "Save Java SDK Gradle dependency cache"
+    - name: "Setup Go for the Go SDK build"
+      if: inputs.e2e_test_mode == 'go_sdk'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e    # v7.0.0
+      with:
+        go-version-file: go-sdk/go.mod
+        cache: false
+    - name: "Restore Go SDK module + build cache"
+      if: inputs.e2e_test_mode == 'go_sdk'
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9    # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: e2e-go-sdk-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go-sdk/go.mod', 'go-sdk/go.sum') }}    # yamllint disable-line rule:line-length
+        restore-keys: |
+          e2e-go-sdk-go-v1-${{ runner.os }}-${{ runner.arch }}-
+    - name: "Setup pnpm for the TypeScript SDK build"
+      if: inputs.e2e_test_mode == 'ts_sdk'
+      uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86    # v6.0.10
+      with:
+        package_json_file: ts-sdk/package.json
+        run_install: false
+    - name: "Setup Node for the TypeScript SDK build"
+      if: inputs.e2e_test_mode == 'ts_sdk'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020    # v7.0.0
+      with:
+        node-version: 22
+        cache: 'pnpm'
+        cache-dependency-path: 'ts-sdk/pnpm-lock.yaml'
+    - name: "Test e2e integration tests"
+      run: breeze testing airflow-e2e-tests
+      env:
+        DOCKER_IMAGE: "${{ inputs.docker-image-tag }}"
+        E2E_TEST_MODE: "${{ inputs.e2e_test_mode }}"
+        LANG_SDK_NATIVE_TOOLCHAIN: "${{ (inputs.e2e_test_mode == 'java_sdk' || inputs.e2e_test_mode == 'go_sdk' || inputs.e2e_test_mode == 'ts_sdk') && 'true' || 'false' }}"    # yamllint disable-line rule:line-length
+    - name: "Save Java SDK Gradle dependency cache"
         # Saved even when the e2e tests fail: the Gradle warm-up is independent of
         # test outcome, and actions/cache's post step would drop it on every red run.
-        if: always() && inputs.e2e_test_mode == 'java_sdk' && steps.gradle-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.gradle/jdks
-            !~/.gradle/caches/*.lock
-            !~/.gradle/caches/journal-1
-          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
-      - name: "Save Go SDK module + build cache"
+      if: always() && inputs.e2e_test_mode == 'java_sdk' && steps.gradle-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9    # v6.1.0
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.gradle/jdks
+          !~/.gradle/caches/*.lock
+          !~/.gradle/caches/journal-1
+        key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
+    - name: "Save Go SDK module + build cache"
         # Saved even when the e2e tests fail, for the same reason as the Gradle cache above.
-        if: always() && inputs.e2e_test_mode == 'go_sdk' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ steps.go-cache.outputs.cache-primary-key }}
-      - name: Zip logs
-        run: |
-          cd ./airflow-e2e-tests && zip -r logs.zip logs
-        if: always()
-      - name: "Upload logs"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: "e2e-test-logs-${{ inputs.e2e_test_mode }}"
-          path: './airflow-e2e-tests/logs.zip'
-          retention-days: '7'
-          if-no-files-found: 'error'
-        if: always()
+      if: always() && inputs.e2e_test_mode == 'go_sdk' && steps.go-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9    # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ steps.go-cache.outputs.cache-primary-key }}
+    - name: Zip logs
+      run: |
+        cd ./airflow-e2e-tests && zip -r logs.zip logs
+      if: always()
+    - name: "Upload logs"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: "e2e-test-logs-${{ inputs.e2e_test_mode }}"
+        path: './airflow-e2e-tests/logs.zip'
+        retention-days: '7'
+        if-no-files-found: 'error'
+      if: always()
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"

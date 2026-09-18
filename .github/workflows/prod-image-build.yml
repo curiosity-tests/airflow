@@ -1,21 +1,3 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
----
 name: Build PROD images
 on:  # yamllint disable-line rule:truthy
   workflow_call:
@@ -134,84 +116,155 @@ jobs:
     env:
       PYTHON_MAJOR_MINOR_VERSION: "${{ inputs.default-python-version }}"
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Checkout target branch"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Checkout target branch"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Make /mnt writeable"
+      run: ./scripts/ci/make_mnt_writeable.sh
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Move docker to /mnt"
+      run: ./scripts/ci/move_docker_to_mnt.sh
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Cleanup dist and context file"
+      shell: bash
+      run: rm -fv ./dist/* ./docker-context-files/*
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Install prek"
+      uses: ./.github/actions/install-prek
+      id: prek
+      with:
+        python-version: ${{ matrix.python-version }}
+        platform: ${{ inputs.platform }}
+        save-cache: false
+    - name: "Install Breeze"
+      uses: ./.github/actions/breeze
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Prepare providers packages - all providers built from sources"
+      shell: bash
+      run: >
+        breeze release-management prepare-provider-distributions
+        --distributions-list-file ./prod_image_installed_providers.txt
+        --distribution-format wheel --include-not-ready-providers --skip-tag-check
+      if: >
+        inputs.upload-package-artifact == 'true' && inputs.branch == 'main'
+    - name: "Prepare providers packages with only new versions of providers"
+      shell: bash
+      run: >
+        breeze release-management prepare-provider-distributions
+        --distributions-list-file ./prod_image_installed_providers.txt
+        --distribution-format wheel --include-not-ready-providers
+      if: >
+        inputs.upload-package-artifact == 'true' && inputs.branch != 'main'
+    - name: "Prepare airflow package"
+      shell: bash
+      run: >
+        breeze release-management prepare-airflow-distributions --distribution-format wheel
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Prepare task-sdk package"
+      shell: bash
+      run: >
+        breeze release-management prepare-task-sdk-distributions --distribution-format wheel
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Prepare airflow-ctl package"
+      shell: bash
+      run: >
+        breeze release-management prepare-airflow-ctl-distributions --distribution-format wheel
+      if: inputs.upload-package-artifact == 'true'
+    - name: "Upload prepared packages as artifacts"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: prod-packages
+        path: ./dist
+        retention-days: 7
+        if-no-files-found: error
+      if: inputs.upload-package-artifact == 'true'
 
-      - name: "Make /mnt writeable"
-        run: ./scripts/ci/make_mnt_writeable.sh
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Move docker to /mnt"
-        run: ./scripts/ci/move_docker_to_mnt.sh
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Cleanup dist and context file"
-        shell: bash
-        run: rm -fv ./dist/* ./docker-context-files/*
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Install prek"
-        uses: ./.github/actions/install-prek
-        id: prek
-        with:
-          python-version: ${{ matrix.python-version }}
-          platform: ${{ inputs.platform }}
-          save-cache: false
-      - name: "Install Breeze"
-        uses: ./.github/actions/breeze
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Prepare providers packages - all providers built from sources"
-        shell: bash
-        run: >
-          breeze release-management prepare-provider-distributions
-          --distributions-list-file ./prod_image_installed_providers.txt
-          --distribution-format wheel --include-not-ready-providers --skip-tag-check
-        if: >
-          inputs.upload-package-artifact == 'true' && inputs.branch == 'main'
-      - name: "Prepare providers packages with only new versions of providers"
-        shell: bash
-        run: >
-          breeze release-management prepare-provider-distributions
-          --distributions-list-file ./prod_image_installed_providers.txt
-          --distribution-format wheel --include-not-ready-providers
-        if: >
-          inputs.upload-package-artifact == 'true' && inputs.branch != 'main'
-      - name: "Prepare airflow package"
-        shell: bash
-        run: >
-          breeze release-management prepare-airflow-distributions --distribution-format wheel
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Prepare task-sdk package"
-        shell: bash
-        run: >
-          breeze release-management prepare-task-sdk-distributions --distribution-format wheel
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Prepare airflow-ctl package"
-        shell: bash
-        run: >
-          breeze release-management prepare-airflow-ctl-distributions --distribution-format wheel
-        if: inputs.upload-package-artifact == 'true'
-      - name: "Upload prepared packages as artifacts"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: prod-packages
-          path: ./dist
-          retention-days: 7
-          if-no-files-found: error
-        if: inputs.upload-package-artifact == 'true'
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   build-prod-images:
     strategy:
       fail-fast: false
@@ -221,7 +274,7 @@ jobs:
     name: "Build PROD ${{ inputs.build-type }} image ${{ matrix.python-version }}"
     runs-on: ${{ fromJSON(inputs.runners) }}
     needs:
-      - build-prod-packages
+    - build-prod-packages
     env:
       BACKEND: sqlite
       PYTHON_MAJOR_MINOR_VERSION: "${{ matrix.python-version }}"
@@ -240,88 +293,159 @@ jobs:
       PLATFORM: ${{ inputs.platform }}
       VERBOSE: "true"
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout target branch"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout target branch"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Make /mnt writeable"
+      run: ./scripts/ci/make_mnt_writeable.sh
+    - name: "Install Breeze"
+      uses: ./.github/actions/breeze
+    - name: "Cleanup dist and context file"
+      shell: bash
+      run: rm -fv ./dist/* ./docker-context-files/*
+    - name: "Download packages prepared as artifacts"
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c    # v8.0.1
+      with:
+        name: prod-packages
+        path: ./docker-context-files
+    - name: "Download constraints"
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c    # v8.0.1
+      with:
+        name: constraints-${{ matrix.python-version }}
+        path: ./docker-context-files/constraints-${{ matrix.python-version }}
+    - name: "Show downloaded files"
+      run: ls -R ./docker-context-files
+    - name: "Show constraints"
+      run: |
+        for file in ./docker-context-files/constraints*/constraints*.txt
+        do
+          echo "=== ${file} ==="
+          echo
+          cat ${file}
+          echo
+          echo "=== END ${file} ==="
+        done
+    - name: "Login to ghcr.io"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ACTOR: ${{ github.actor }}
+      run: echo "${GITHUB_TOKEN}" | docker login ghcr.io -u ${ACTOR} --password-stdin
+    - name: "Build PROD images w/ source providers ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
+      shell: bash
+      run: >
+        breeze prod-image build
+        --builder airflow_cache
+        --commit-sha "${{ github.sha }}"
+        --install-distributions-from-context
+        --airflow-constraints-mode constraints-source-providers
+        --use-constraints-for-context-distributions
+      env:
+        PUSH: ${{ inputs.push-image }}
+        DOCKER_CACHE: ${{ inputs.docker-cache }}
+        DISABLE_AIRFLOW_REPO_CACHE: ${{ inputs.disable-airflow-repo-cache }}
+        DEBIAN_VERSION: ${{ inputs.debian-version }}
+        INSTALL_MYSQL_CLIENT_TYPE: ${{ inputs.install-mysql-client-type }}
+        UPGRADE_TO_NEWER_DEPENDENCIES: ${{ inputs.upgrade-to-newer-dependencies }}
+        INCLUDE_NOT_READY_PROVIDERS: "true"
+        USE_UV: ${{ inputs.use-uv }}
+    - name: "Verify PROD image ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
+      run: breeze prod-image verify
+    - name: "Export PROD docker image ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
+      env:
+        PLATFORM: ${{ inputs.platform }}
+      run: >
+        breeze prod-image save --platform "${PLATFORM}" --image-file-dir "/mnt"
+      if: inputs.upload-image-artifact == 'true'
+    - name: "Stash PROD docker image ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
+      uses: apache/infrastructure-actions/stash/save@61dcea11f19e2bbe1263f14d72235e8da17d3ad0    # save/v1.0.0
+      with:
+        key: prod-image-save-v3-${{ inputs.platform }}-${{ env.PYTHON_MAJOR_MINOR_VERSION }}
+        path: "/mnt/prod-image-save-*-${{ env.PYTHON_MAJOR_MINOR_VERSION }}.tar"
+        if-no-files-found: 'error'
+        retention-days: '2'
+      if: inputs.upload-image-artifact == 'true'
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
-      - name: "Make /mnt writeable"
-        run: ./scripts/ci/make_mnt_writeable.sh
-      - name: "Install Breeze"
-        uses: ./.github/actions/breeze
-      - name: "Cleanup dist and context file"
-        shell: bash
-        run: rm -fv ./dist/* ./docker-context-files/*
-      - name: "Download packages prepared as artifacts"
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: prod-packages
-          path: ./docker-context-files
-      - name: "Download constraints"
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: constraints-${{ matrix.python-version }}
-          path: ./docker-context-files/constraints-${{ matrix.python-version }}
-      - name: "Show downloaded files"
-        run: ls -R ./docker-context-files
-      - name: "Show constraints"
-        run: |
-          for file in ./docker-context-files/constraints*/constraints*.txt
-          do
-            echo "=== ${file} ==="
-            echo
-            cat ${file}
-            echo
-            echo "=== END ${file} ==="
-          done
-      - name: "Login to ghcr.io"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTOR: ${{ github.actor }}
-        run: echo "${GITHUB_TOKEN}" | docker login ghcr.io -u ${ACTOR} --password-stdin
-      - name: "Build PROD images w/ source providers ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
-        shell: bash
-        run: >
-          breeze prod-image build
-          --builder airflow_cache
-          --commit-sha "${{ github.sha }}"
-          --install-distributions-from-context
-          --airflow-constraints-mode constraints-source-providers
-          --use-constraints-for-context-distributions
-        env:
-          PUSH: ${{ inputs.push-image }}
-          DOCKER_CACHE: ${{ inputs.docker-cache }}
-          DISABLE_AIRFLOW_REPO_CACHE: ${{ inputs.disable-airflow-repo-cache }}
-          DEBIAN_VERSION: ${{ inputs.debian-version }}
-          INSTALL_MYSQL_CLIENT_TYPE: ${{ inputs.install-mysql-client-type }}
-          UPGRADE_TO_NEWER_DEPENDENCIES: ${{ inputs.upgrade-to-newer-dependencies }}
-          INCLUDE_NOT_READY_PROVIDERS: "true"
-          USE_UV: ${{ inputs.use-uv }}
-      - name: "Verify PROD image ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
-        run: breeze prod-image verify
-      - name: "Export PROD docker image ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
-        env:
-          PLATFORM: ${{ inputs.platform }}
-        run: >
-          breeze prod-image save --platform "${PLATFORM}" --image-file-dir "/mnt"
-        if: inputs.upload-image-artifact == 'true'
-      - name: "Stash PROD docker image ${{ env.PYTHON_MAJOR_MINOR_VERSION }}"
-        uses: apache/infrastructure-actions/stash/save@61dcea11f19e2bbe1263f14d72235e8da17d3ad0  # save/v1.0.0
-        with:
-          key: prod-image-save-v3-${{ inputs.platform }}-${{ env.PYTHON_MAJOR_MINOR_VERSION }}
-          path: "/mnt/prod-image-save-*-${{ env.PYTHON_MAJOR_MINOR_VERSION }}.tar"
-          if-no-files-found: 'error'
-          retention-days: '2'
-        if: inputs.upload-image-artifact == 'true'
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"

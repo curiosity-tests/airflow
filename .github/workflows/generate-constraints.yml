@@ -1,21 +1,3 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
----
 name: Generate constraints
 on:  # yamllint disable-line rule:truthy
   workflow_call:
@@ -118,120 +100,191 @@ jobs:
       PYTHON_VERSION: ${{ matrix.python-version }}
       VERBOSE: "true"
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ inputs.checkout-ref || github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          ref: ${{ inputs.checkout-ref }}
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
-
-      - name: "Install prek"
-        uses: ./.github/actions/install-prek
-        id: prek
-        with:
-          python-version: ${{ matrix.python-version }}
-          platform: ${{ inputs.platform }}
-          save-cache: false
-      - name: "Prepare breeze & CI image: ${{ matrix.python-version }}"
-        uses: ./.github/actions/prepare_breeze_and_image
-        with:
-          platform: ${{ inputs.platform }}
-          python: ${{ matrix.python-version }}
-          use-uv: ${{ inputs.use-uv }}
-          make-mnt-writeable-and-cleanup: true
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ inputs.checkout-ref || github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        ref: ${{ inputs.checkout-ref }}
+        persist-credentials: false
+    - name: "Install prek"
+      uses: ./.github/actions/install-prek
+      id: prek
+      with:
+        python-version: ${{ matrix.python-version }}
+        platform: ${{ inputs.platform }}
+        save-cache: false
+    - name: "Prepare breeze & CI image: ${{ matrix.python-version }}"
+      uses: ./.github/actions/prepare_breeze_and_image
+      with:
+        platform: ${{ inputs.platform }}
+        python: ${{ matrix.python-version }}
+        use-uv: ${{ inputs.use-uv }}
+        make-mnt-writeable-and-cleanup: true
       # Resolves the providers from the sources in this checkout. Skipped for a release, which
       # ships only the PyPI constraints and must not have a source tree answer for a provider.
-      - name: "Source constraints"
-        shell: bash
-        run: >
-          breeze release-management generate-constraints
-          --airflow-constraints-mode constraints-source-providers --answer yes
-          --python "${PYTHON_VERSION}"
-        if: inputs.pypi-providers-only != 'true'
-      - name: "No providers constraints"
-        shell: bash
-        timeout-minutes: 25
-        run: >
-          breeze release-management generate-constraints
-          --airflow-constraints-mode constraints-no-providers --answer yes
-          --python "${PYTHON_VERSION}"
-        if: inputs.generate-no-providers-constraints == 'true'
+    - name: "Source constraints"
+      shell: bash
+      run: >
+        breeze release-management generate-constraints
+        --airflow-constraints-mode constraints-source-providers --answer yes
+        --python "${PYTHON_VERSION}"
+      if: inputs.pypi-providers-only != 'true'
+    - name: "No providers constraints"
+      shell: bash
+      timeout-minutes: 25
+      run: >
+        breeze release-management generate-constraints
+        --airflow-constraints-mode constraints-no-providers --answer yes
+        --python "${PYTHON_VERSION}"
+      if: inputs.generate-no-providers-constraints == 'true'
       # Builds the providers from sources into the dist directory the PyPI resolution reads through
       # `--find-links`, so a locally built wheel can answer for a provider and is then excluded from
       # the constraints. That is wanted while developing a provider that is not on PyPI yet; it is the
       # opposite of what a release wants, which is every provider pinned at its published version.
-      - name: "Prepare updated provider distributions"
-        shell: bash
-        run: >
-          breeze release-management prepare-provider-distributions
-          --include-not-ready-providers --distribution-format wheel
-        if: inputs.generate-pypi-constraints == 'true' && inputs.pypi-providers-only != 'true'
-      - name: "Prepare airflow distributions"
-        shell: bash
-        run: >
-          breeze release-management prepare-airflow-distributions --distribution-format wheel
-        if: inputs.generate-pypi-constraints == 'true'
-      - name: "Prepare task-sdk distribution"
-        shell: bash
-        run: >
-          breeze release-management prepare-task-sdk-distributions --distribution-format wheel
-        if: inputs.generate-pypi-constraints == 'true'
-      - name: "PyPI constraints"
-        shell: bash
-        timeout-minutes: 25
-        env:
+    - name: "Prepare updated provider distributions"
+      shell: bash
+      run: >
+        breeze release-management prepare-provider-distributions
+        --include-not-ready-providers --distribution-format wheel
+      if: inputs.generate-pypi-constraints == 'true' && inputs.pypi-providers-only != 'true'
+    - name: "Prepare airflow distributions"
+      shell: bash
+      run: >
+        breeze release-management prepare-airflow-distributions --distribution-format wheel
+      if: inputs.generate-pypi-constraints == 'true'
+    - name: "Prepare task-sdk distribution"
+      shell: bash
+      run: >
+        breeze release-management prepare-task-sdk-distributions --distribution-format wheel
+      if: inputs.generate-pypi-constraints == 'true'
+    - name: "PyPI constraints"
+      shell: bash
+      timeout-minutes: 25
+      env:
           # Deliberately not named ALLOW_PRE_RELEASES: that is the option's own envvar, and having
           # both paths set it would make it unclear which one is in force. Empty on a normal run,
           # so the unquoted expansion below contributes no argument at all.
-          PRE_RELEASE_FLAG: ${{ inputs.allow-pre-releases == 'true' && '--allow-pre-releases' || '' }}
-        run: |
-          breeze release-management generate-constraints --airflow-constraints-mode constraints \
-            --answer yes --python "${PYTHON_VERSION}" ${PRE_RELEASE_FLAG}
-        if: inputs.generate-pypi-constraints == 'true'
-      - name: "Check for provider downgrade alert"
-        id: downgrade-alert
-        if: always() && inputs.generate-pypi-constraints == 'true'
-        shell: bash
-        env:
-          PYTHON_VERSION: ${{ matrix.python-version }}
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        run: |
-          message_file="files/constraints-${PYTHON_VERSION}/provider-downgrade-slack-message.json"
-          if [[ -f "${message_file}" && -n "${SLACK_BOT_TOKEN}" ]]; then
-            echo "notify=true" >> "${GITHUB_OUTPUT}"
-            echo "message-file=${message_file}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "notify=false" >> "${GITHUB_OUTPUT}"
+        PRE_RELEASE_FLAG: ${{ inputs.allow-pre-releases == 'true' && '--allow-pre-releases' || '' }}
+      run: |
+        breeze release-management generate-constraints --airflow-constraints-mode constraints \
+          --answer yes --python "${PYTHON_VERSION}" ${PRE_RELEASE_FLAG}
+      if: inputs.generate-pypi-constraints == 'true'
+    - name: "Check for provider downgrade alert"
+      id: downgrade-alert
+      if: always() && inputs.generate-pypi-constraints == 'true'
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ matrix.python-version }}
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      run: |
+        message_file="files/constraints-${PYTHON_VERSION}/provider-downgrade-slack-message.json"
+        if [[ -f "${message_file}" && -n "${SLACK_BOT_TOKEN}" ]]; then
+          echo "notify=true" >> "${GITHUB_OUTPUT}"
+          echo "message-file=${message_file}" >> "${GITHUB_OUTPUT}"
+        else
+          echo "notify=false" >> "${GITHUB_OUTPUT}"
+        fi
+    - name: "Post provider downgrade alert to Slack"
+      if: always() && steps.downgrade-alert.outputs.notify == 'true'
+      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d    # v4.0.0
+      with:
+        token: ${{ secrets.SLACK_BOT_TOKEN }}
+        payload-file-path: ${{ steps.downgrade-alert.outputs.message-file }}
+    - name: "Upload constraint artifacts"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: constraints-${{ matrix.python-version }}
+        path: ./files/constraints-${{ matrix.python-version }}/constraints-*.txt
+        retention-days: 7
+        if-no-files-found: error
+    - name: "Dependency upgrade summary"
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ matrix.python-version }}
+      run: |
+        echo "Summarizing Python $PYTHON_VERSION"
+        cat "files/constraints-${PYTHON_VERSION}"/*.md >> $GITHUB_STEP_SUMMARY || true
+        df -H
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
           fi
-      - name: "Post provider downgrade alert to Slack"
-        if: always() && steps.downgrade-alert.outputs.notify == 'true'
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d  # v4.0.0
-        with:
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          payload-file-path: ${{ steps.downgrade-alert.outputs.message-file }}
-      - name: "Upload constraint artifacts"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: constraints-${{ matrix.python-version }}
-          path: ./files/constraints-${{ matrix.python-version }}/constraints-*.txt
-          retention-days: 7
-          if-no-files-found: error
-      - name: "Dependency upgrade summary"
-        shell: bash
-        env:
-          PYTHON_VERSION: ${{ matrix.python-version }}
-        run: |
-          echo "Summarizing Python $PYTHON_VERSION"
-          cat "files/constraints-${PYTHON_VERSION}"/*.md >> $GITHUB_STEP_SUMMARY || true
-          df -H
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"

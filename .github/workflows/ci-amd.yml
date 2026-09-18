@@ -1,21 +1,3 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
----
 # AMD CI workflow. Triggered on every PR and on push to release branches.
 # Companion to `ci-arm.yml`, which runs the same pipeline on ARM as the
 # scheduled canary. The two workflows are physical copies of each other
@@ -30,17 +12,17 @@ on:  # yamllint disable-line rule:truthy
     # in `ci-arm.yml` so a full-matrix canary still runs roughly every ~6h (alternating
     # architecture) while halving the scheduled AMD compute. The `:58` vs ARM's `:28`
     # offset keeps the two from competing for runners at exactly the same minute.
-    - cron: '58 1,13 * * *'
+  - cron: '58 1,13 * * *'
   pull_request:
     branches:
-      - main
-      - v[0-9]+-[0-9]+-test
-      - v[0-9]+-[0-9]+-stable
-      - providers-[a-z]+-?[a-z]*/v[0-9]+-[0-9]+
-      - chart/v[0-9]+-[0-9]+x-test
-      - chart/v[0-9]+-[0-9]+x-stable
-      - airflow-ctl/v[0-9]+-[0-9]+-test
-      - airflow-ctl/v[0-9]+-[0-9]+-stable
+    - main
+    - v[0-9]+-[0-9]+-test
+    - v[0-9]+-[0-9]+-stable
+    - providers-[a-z]+-?[a-z]*/v[0-9]+-[0-9]+
+    - chart/v[0-9]+-[0-9]+x-test
+    - chart/v[0-9]+-[0-9]+x-stable
+    - airflow-ctl/v[0-9]+-[0-9]+-test
+    - airflow-ctl/v[0-9]+-[0-9]+-stable
     types: [opened, reopened, synchronize, ready_for_review]
   push:
     # Post-merge pushes to release-prep / providers branches run on both
@@ -49,10 +31,10 @@ on:  # yamllint disable-line rule:truthy
     # intentionally NOT in this list: main pushes stay AMD-only via
     # `ci-amd.yml`; ARM main coverage is the cron-driven canary above.
     branches:
-      - v[0-9]+-[0-9]+-test
-      - providers-[a-z]+-?[a-z]*/v[0-9]+-[0-9]+
-      - chart/v[0-9]+-[0-9]+x-test
-      - airflow-ctl/v[0-9]+-[0-9]+-test
+    - v[0-9]+-[0-9]+-test
+    - providers-[a-z]+-?[a-z]*/v[0-9]+-[0-9]+
+    - chart/v[0-9]+-[0-9]+x-test
+    - airflow-ctl/v[0-9]+-[0-9]+-test
   workflow_dispatch:
     inputs:
       leg:
@@ -195,33 +177,27 @@ jobs:
       upgrade-to-newer-dependencies: ${{ steps.selective-checks.outputs.upgrade-to-newer-dependencies }}
       is-uv-lock-update: ${{ steps.selective-checks.outputs.is-uv-lock-update }}
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
-
-      - name: Fetch incoming commit ${{ github.sha }} with its parent
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 2
-          persist-credentials: false
-      - name: "Install Breeze"
-        uses: ./.github/actions/breeze
-        id: breeze
-      - name: "Save github context to file"
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: Fetch incoming commit ${{ github.sha }} with its parent
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1    # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        fetch-depth: 2
+        persist-credentials: false
+    - name: "Install Breeze"
+      uses: ./.github/actions/breeze
+      id: breeze
+    - name: "Save github context to file"
         # The github context can be very large for PRs that touch many files (e.g. Dependabot
         # bumps with dozens of packages). Passing it as an env var would exceed ARG_MAX and
         # prevent subsequent steps from starting bash, so we write it to a file once here and
@@ -240,38 +216,115 @@ jobs:
         #   * `cat` writes the bytes verbatim to a file -- it is not eval'd.
         # Whatever junk a malicious PR puts in title/body therefore lands inside a JSON file
         # consumed by breeze, never executed as shell.
-        shell: bash
-        run: |  # zizmor: ignore[template-injection]
-          cat > "${RUNNER_TEMP}/github_context.json" << '__GITHUB_CONTEXT_END__'
-          ${{ toJson(github) }}
-          __GITHUB_CONTEXT_END__
-      - name: "Get information about the Workflow"
-        id: source-run-info
-        run: breeze ci get-workflow-info 2>> ${GITHUB_OUTPUT}
-        env:
-          SKIP_BREEZE_SELF_UPGRADE_CHECK: "true"
-          GITHUB_CONTEXT_INPUT: "${{ runner.temp }}/github_context.json"
-      - name: Selective checks
-        id: selective-checks
-        env:
-          PR_LABELS: "${{ steps.source-run-info.outputs.pr-labels }}"
-          COMMIT_REF: "${{ github.sha }}"
-          VERBOSE: "false"
-          GITHUB_CONTEXT_INPUT: "${{ runner.temp }}/github_context.json"
-          PLATFORM: "linux/amd64"
-        run: breeze ci selective-check 2>> ${GITHUB_OUTPUT}
-      - name: env
-        run: printenv
-        env:
-          PR_LABELS: ${{ steps.source-run-info.outputs.pr-labels }}
+      shell: bash
+      run: |  # zizmor: ignore[template-injection]
+        cat > "${RUNNER_TEMP}/github_context.json" << '__GITHUB_CONTEXT_END__'
+        ${{ toJson(github) }}
+        __GITHUB_CONTEXT_END__
+    - name: "Get information about the Workflow"
+      id: source-run-info
+      run: breeze ci get-workflow-info 2>> ${GITHUB_OUTPUT}
+      env:
+        SKIP_BREEZE_SELF_UPGRADE_CHECK: "true"
+        GITHUB_CONTEXT_INPUT: "${{ runner.temp }}/github_context.json"
+    - name: Selective checks
+      id: selective-checks
+      env:
+        PR_LABELS: "${{ steps.source-run-info.outputs.pr-labels }}"
+        COMMIT_REF: "${{ github.sha }}"
+        VERBOSE: "false"
+        GITHUB_CONTEXT_INPUT: "${{ runner.temp }}/github_context.json"
+        PLATFORM: "linux/amd64"
+      run: breeze ci selective-check 2>> ${GITHUB_OUTPUT}
+    - name: env
+      run: printenv
+      env:
+        PR_LABELS: ${{ steps.source-run-info.outputs.pr-labels }}
 
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   print-platform:
     name: "Platform: AMD"
     needs: [build-info]
     runs-on: ubuntu-latest
     steps:
-      - name: "Print architecture"
-        run: "echo '## Architecture: AMD' >> $GITHUB_STEP_SUMMARY"
+    - name: "Print architecture"
+      run: "echo '## Architecture: AMD' >> $GITHUB_STEP_SUMMARY"
 
   basic-tests:
     name: "Basic tests"
@@ -409,48 +462,119 @@ jobs:
       PYTHON_MAJOR_MINOR_VERSION: "${{ needs.build-info.outputs.default-python-version }}"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Prepare breeze & CI image: ${{ needs.build-info.outputs.default-python-version }}"
+      uses: ./.github/actions/prepare_breeze_and_image
+      with:
+        platform: ${{ needs.build-info.outputs.platform }}
+        python: "${{ needs.build-info.outputs.default-python-version }}"
+        use-uv: ${{ needs.build-info.outputs.use-uv }}
+        make-mnt-writeable-and-cleanup: true
+      id: breeze
+    - name: "Install prek"
+      uses: ./.github/actions/install-prek
+      id: prek
+      with:
+        python-version: ${{steps.breeze.outputs.host-python-version}}
+        platform: ${{ needs.build-info.outputs.platform }}
+        save-cache: false
+    - name: "MyPy checks for providers"
+      run: prek --color always --verbose --stage manual mypy-providers --all-files
+      env:
+        VERBOSE: "false"
+        COLUMNS: "202"
+        SKIP_GROUP_OUTPUT: "true"
+        DEFAULT_BRANCH: ${{ needs.build-info.outputs.default-branch }}
+        RUFF_FORMAT: "github"
+        INCLUDE_MYPY_VOLUME: "false"
 
-      - name: "Prepare breeze & CI image: ${{ needs.build-info.outputs.default-python-version }}"
-        uses: ./.github/actions/prepare_breeze_and_image
-        with:
-          platform: ${{ needs.build-info.outputs.platform }}
-          python: "${{ needs.build-info.outputs.default-python-version }}"
-          use-uv: ${{ needs.build-info.outputs.use-uv }}
-          make-mnt-writeable-and-cleanup: true
-        id: breeze
-      - name: "Install prek"
-        uses: ./.github/actions/install-prek
-        id: prek
-        with:
-          python-version: ${{steps.breeze.outputs.host-python-version}}
-          platform: ${{ needs.build-info.outputs.platform }}
-          save-cache: false
-      - name: "MyPy checks for providers"
-        run: prek --color always --verbose --stage manual mypy-providers --all-files
-        env:
-          VERBOSE: "false"
-          COLUMNS: "202"
-          SKIP_GROUP_OUTPUT: "true"
-          DEFAULT_BRANCH: ${{ needs.build-info.outputs.default-branch }}
-          RUFF_FORMAT: "github"
-          INCLUDE_MYPY_VOLUME: "false"
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   migration-round-trip:
     timeout-minutes: 20
     name: "Migration round-trip check"
@@ -461,46 +585,117 @@ jobs:
       PYTHON_MAJOR_MINOR_VERSION: "${{ needs.build-info.outputs.default-python-version }}"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Prepare breeze & CI image: ${{ needs.build-info.outputs.default-python-version }}"
+      uses: ./.github/actions/prepare_breeze_and_image
+      with:
+        platform: ${{ needs.build-info.outputs.platform }}
+        python: "${{ needs.build-info.outputs.default-python-version }}"
+        use-uv: ${{ needs.build-info.outputs.use-uv }}
+        make-mnt-writeable-and-cleanup: true
+      id: breeze
+    - name: "Install prek"
+      uses: ./.github/actions/install-prek
+      id: prek
+      with:
+        python-version: ${{steps.breeze.outputs.host-python-version}}
+        platform: ${{ needs.build-info.outputs.platform }}
+        save-cache: false
+    - name: "Migration round-trip check"
+      run: prek --color always --verbose --stage manual migration-round-trip --all-files
+      env:
+        VERBOSE: "false"
+        COLUMNS: "202"
+        SKIP_GROUP_OUTPUT: "true"
+        DEFAULT_BRANCH: ${{ needs.build-info.outputs.default-branch }}
 
-      - name: "Prepare breeze & CI image: ${{ needs.build-info.outputs.default-python-version }}"
-        uses: ./.github/actions/prepare_breeze_and_image
-        with:
-          platform: ${{ needs.build-info.outputs.platform }}
-          python: "${{ needs.build-info.outputs.default-python-version }}"
-          use-uv: ${{ needs.build-info.outputs.use-uv }}
-          make-mnt-writeable-and-cleanup: true
-        id: breeze
-      - name: "Install prek"
-        uses: ./.github/actions/install-prek
-        id: prek
-        with:
-          python-version: ${{steps.breeze.outputs.host-python-version}}
-          platform: ${{ needs.build-info.outputs.platform }}
-          save-cache: false
-      - name: "Migration round-trip check"
-        run: prek --color always --verbose --stage manual migration-round-trip --all-files
-        env:
-          VERBOSE: "false"
-          COLUMNS: "202"
-          SKIP_GROUP_OUTPUT: "true"
-          DEFAULT_BRANCH: ${{ needs.build-info.outputs.default-branch }}
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   providers:
     name: "Provider distributions tests"
     uses: ./.github/workflows/test-providers.yml
@@ -1108,50 +1303,121 @@ jobs:
       GITHUB_USERNAME: ${{ github.actor }}
       VERBOSE: "true"
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
       # keep this in sync with go.mod in go-sdk/
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
-
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
-        with:
+    - name: Setup Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e    # v7.0.0
+      with:
           # Pinned to the patch: actions/go-versions trails Go security releases by weeks, and
           # setup-go resolves from that manifest whenever it can match, so a bare 1.25 lands on a
           # toolchain whose standard library still carries advisories the scan below fails on.
-          go-version: '1.25.13'
-          cache-dependency-path: go-sdk/go.sum
+        go-version: '1.25.13'
+        cache-dependency-path: go-sdk/go.sum
       # keep this in sync with go.mod in go-sdk/
-      - name: Setup Gotestsum
-        shell: bash
-        run: |
-          go install gotest.tools/gotestsum@c4a0df2e75a225d979a444342dd3db752b53619f  # v1.13.0
-          gotestsum --version
-      - name: "Cleanup dist files"
-        run: rm -fv ./dist/*
-      - name: Run Go tests
-        working-directory: ./go-sdk
-        run: gotestsum --format github-actions ./...
+    - name: Setup Gotestsum
+      shell: bash
+      run: |
+        go install gotest.tools/gotestsum@c4a0df2e75a225d979a444342dd3db752b53619f  # v1.13.0
+        gotestsum --version
+    - name: "Cleanup dist files"
+      run: rm -fv ./dist/*
+    - name: Run Go tests
+      working-directory: ./go-sdk
+      run: gotestsum --format github-actions ./...
       # Go modules have no central registry that pre-scans releases, so we scan our own
       # dependency graph against the Go vulnerability database. govulncheck is reachability
       # based, so it only fails on advisories that actually affect code we call. The version
       # tag is immutable (Go modules are content-addressed via the checksum database).
-      - name: Scan Go dependencies for known vulnerabilities
-        working-directory: ./go-sdk
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
-          govulncheck ./...
+    - name: Scan Go dependencies for known vulnerabilities
+      working-directory: ./go-sdk
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+        govulncheck ./...
 
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   tests-java-sdk:
     name: "Java SDK tests"
     needs: [build-info]
@@ -1168,31 +1434,102 @@ jobs:
       GITHUB_USERNAME: ${{ github.actor }}
       VERBOSE: "true"
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: Setup Java
+      uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c    # v6.0.0
+      with:
+        distribution: 'temurin'
+        java-version: ${{ env.JAVA_VERSION }}
+    - name: "Cleanup dist files"
+      run: rm -fv ./dist/*
+    - name: Run Java SDK tests
+      working-directory: ./java-sdk
+      run: ./gradlew test
 
-      - name: Setup Java
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c  # v6.0.0
-        with:
-          distribution: 'temurin'
-          java-version: ${{ env.JAVA_VERSION }}
-      - name: "Cleanup dist files"
-        run: rm -fv ./dist/*
-      - name: Run Java SDK tests
-        working-directory: ./java-sdk
-        run: ./gradlew test
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   build-java-sdk-docs:
     name: "Java SDK docs"
     needs: [build-info]
@@ -1209,33 +1546,104 @@ jobs:
       GITHUB_USERNAME: ${{ github.actor }}
       VERBOSE: "true"
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Install Breeze"
+      uses: ./.github/actions/breeze
+    - name: "Build Java SDK Javadoc"
+      run: breeze build-docs --sdk-docs-only --sdk=java
+    - name: "Upload Javadoc artifact"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: java-sdk-docs
+        path: generated/_build/docs/java-sdk/
+        retention-days: 7
+        if-no-files-found: error
+        overwrite: 'true'
 
-      - name: "Install Breeze"
-        uses: ./.github/actions/breeze
-      - name: "Build Java SDK Javadoc"
-        run: breeze build-docs --sdk-docs-only --sdk=java
-      - name: "Upload Javadoc artifact"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: java-sdk-docs
-          path: generated/_build/docs/java-sdk/
-          retention-days: 7
-          if-no-files-found: error
-          overwrite: 'true'
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   build-ts-sdk-docs:
     name: "TypeScript SDK docs"
     needs: [build-info]
@@ -1252,33 +1660,104 @@ jobs:
       GITHUB_USERNAME: ${{ github.actor }}
       VERBOSE: "true"
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Install Breeze"
+      uses: ./.github/actions/breeze
+    - name: "Build TypeScript SDK API reference"
+      run: breeze build-docs --sdk-docs-only --sdk=typescript
+    - name: "Upload TypeScript SDK docs artifact"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: ts-sdk-docs
+        path: generated/_build/docs/ts-sdk/
+        retention-days: 7
+        if-no-files-found: error
+        overwrite: 'true'
 
-      - name: "Install Breeze"
-        uses: ./.github/actions/breeze
-      - name: "Build TypeScript SDK API reference"
-        run: breeze build-docs --sdk-docs-only --sdk=typescript
-      - name: "Upload TypeScript SDK docs artifact"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ts-sdk-docs
-          path: generated/_build/docs/ts-sdk/
-          retention-days: 7
-          if-no-files-found: error
-          overwrite: 'true'
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   tests-airflow-ctl:
     name: "Airflow CTL tests"
     uses: ./.github/workflows/airflow-distributions-tests.yml
@@ -1312,35 +1791,35 @@ jobs:
     # This will fire when all the jobs from "needs" are either successful or skipped
     if: always() && !failure() && !cancelled()
     needs:
-      - additional-ci-image-checks
-      - additional-prod-image-tests
-      - basic-tests
-      - build-info
-      - build-prod-images
-      - ci-image-checks
-      - generate-constraints
-      - migration-round-trip
-      - mypy-providers
-      - providers
-      - tests-helm
-      - tests-integration-system
-      - tests-kubernetes
-      - tests-mysql-core
-      - tests-mysql-providers
-      - tests-non-db-core
-      - tests-non-db-providers
-      - tests-postgres-core
-      - tests-postgres-providers
-      - tests-sqlite-core
-      - tests-sqlite-providers
-      - tests-task-sdk
-      - tests-airflow-ctl
-      - tests-go-sdk
-      - tests-java-sdk
-      - build-java-sdk-docs
-      - build-ts-sdk-docs
-      - tests-with-lowest-direct-resolution-core
-      - tests-with-lowest-direct-resolution-providers
+    - additional-ci-image-checks
+    - additional-prod-image-tests
+    - basic-tests
+    - build-info
+    - build-prod-images
+    - ci-image-checks
+    - generate-constraints
+    - migration-round-trip
+    - mypy-providers
+    - providers
+    - tests-helm
+    - tests-integration-system
+    - tests-kubernetes
+    - tests-mysql-core
+    - tests-mysql-providers
+    - tests-non-db-core
+    - tests-non-db-providers
+    - tests-postgres-core
+    - tests-postgres-providers
+    - tests-sqlite-core
+    - tests-sqlite-providers
+    - tests-task-sdk
+    - tests-airflow-ctl
+    - tests-go-sdk
+    - tests-java-sdk
+    - build-java-sdk-docs
+    - build-ts-sdk-docs
+    - tests-with-lowest-direct-resolution-core
+    - tests-with-lowest-direct-resolution-providers
     uses: ./.github/workflows/finalize-tests.yml
     with:
       chalk_on: ${{ inputs.leg == 'instrumented' }}
@@ -1363,8 +1842,8 @@ jobs:
   notify-slack:
     name: "Notify Slack"
     needs:
-      - build-info
-      - finalize-tests
+    - build-info
+    - finalize-tests
     if: >-
       always() &&
       !cancelled() &&
@@ -1372,168 +1851,310 @@ jobs:
       github.run_attempt == 1
     runs-on: ubuntu-latest
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Get failing jobs"
+      id: get-failures
+      shell: bash
+      run: |
+        FAILED_JOBS=$(gh run view "${{ github.run_id }}" \
+          --repo "${{ github.repository }}" \
+          --json jobs \
+          --jq '[.jobs[] | select(.conclusion == "failure") | .name] | sort | .[]')
+        echo "failed-jobs<<EOF" >> "${GITHUB_OUTPUT}"
+        echo "${FAILED_JOBS}" >> "${GITHUB_OUTPUT}"
+        echo "EOF" >> "${GITHUB_OUTPUT}"
+        # A literal newline would end the double-quoted YAML scalar the Slack payload
+        # interpolates job names into, and the action would reject the whole payload.
+        echo "failed-jobs-text=${FAILED_JOBS//$'\n'/\\n}" >> "${GITHUB_OUTPUT}"
+        if [[ -n "${FAILED_JOBS}" ]]; then
+          echo "has-failures=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "has-failures=false" >> "${GITHUB_OUTPUT}"
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: "Determine notification action"
+      id: notification
+      shell: bash
+      run: |
+        command -v gh >/dev/null 2>&1 || { echo "::error::gh CLI is not installed"; exit 1; }
+        gh auth status || gh auth login --with-token <<< "${GITHUB_TOKEN}"
+        python3 scripts/ci/slack_notification_state.py
+      env:
+        ARTIFACT_NAME: "slack-state-tests-${{ github.ref_name }}-amd"
+        CURRENT_FAILURES: "${{ steps.get-failures.outputs.failed-jobs }}"
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: "Upload notification state"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: "slack-state-tests-${{ github.ref_name }}-amd"
+        path: ./slack-state/
+        retention-days: 7
+        overwrite: true
+    - name: "Notify Slack (new/changed failures)"
+      if: steps.notification.outputs.action == 'notify_new'
+      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d    # v4.0.0
+      with:
+        method: chat.postMessage
+        token: ${{ env.SLACK_BOT_TOKEN }}
+          # yamllint disable rule:line-length
+        payload: |
+          channel: "internal-airflow-ci-cd"
+          text: "🚨 Failure Alert: Scheduled CI (${{ needs.build-info.outputs.platform }}) on branch *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
+          blocks:
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "🚨 Failure Alert: Scheduled CI (${{ needs.build-info.outputs.platform }}) on *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
+         # yamllint enable rule:line-length
+    - name: "Notify Slack (still not fixed)"
+      if: steps.notification.outputs.action == 'notify_reminder'
+      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d    # v4.0.0
+      with:
+        method: chat.postMessage
+        token: ${{ env.SLACK_BOT_TOKEN }}
+          # yamllint disable rule:line-length
+        payload: |
+          channel: "internal-airflow-ci-cd"
+          text: "🚨🔁 Still not fixed: Scheduled CI (${{ needs.build-info.outputs.platform }}) on branch *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
+          blocks:
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "🚨🔁 Still not fixed: Scheduled CI (${{ needs.build-info.outputs.platform }}) on *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
+         # yamllint enable rule:line-length
+    - name: "Notify Slack (all tests passing)"
+      if: steps.notification.outputs.action == 'notify_recovery'
+      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d    # v4.0.0
+      with:
+        method: chat.postMessage
+        token: ${{ env.SLACK_BOT_TOKEN }}
+          # yamllint disable rule:line-length
+        payload: |
+          channel: "internal-airflow-ci-cd"
+          text: "✅ All tests passing: Scheduled CI (${{ needs.build-info.outputs.platform }}) on branch *${{ github.ref_name }}*\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the run log>"
+          blocks:
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "✅ All tests passing: Scheduled CI (${{ needs.build-info.outputs.platform }}) on *${{ github.ref_name }}*\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the run log>"
+         # yamllint enable rule:line-length
 
-      - name: "Get failing jobs"
-        id: get-failures
-        shell: bash
-        run: |
-          FAILED_JOBS=$(gh run view "${{ github.run_id }}" \
-            --repo "${{ github.repository }}" \
-            --json jobs \
-            --jq '[.jobs[] | select(.conclusion == "failure") | .name] | sort | .[]')
-          echo "failed-jobs<<EOF" >> "${GITHUB_OUTPUT}"
-          echo "${FAILED_JOBS}" >> "${GITHUB_OUTPUT}"
-          echo "EOF" >> "${GITHUB_OUTPUT}"
-          # A literal newline would end the double-quoted YAML scalar the Slack payload
-          # interpolates job names into, and the action would reject the whole payload.
-          echo "failed-jobs-text=${FAILED_JOBS//$'\n'/\\n}" >> "${GITHUB_OUTPUT}"
-          if [[ -n "${FAILED_JOBS}" ]]; then
-            echo "has-failures=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "has-failures=false" >> "${GITHUB_OUTPUT}"
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: "Determine notification action"
-        id: notification
-        shell: bash
-        run: |
-          command -v gh >/dev/null 2>&1 || { echo "::error::gh CLI is not installed"; exit 1; }
-          gh auth status || gh auth login --with-token <<< "${GITHUB_TOKEN}"
-          python3 scripts/ci/slack_notification_state.py
-        env:
-          ARTIFACT_NAME: "slack-state-tests-${{ github.ref_name }}-amd"
-          CURRENT_FAILURES: "${{ steps.get-failures.outputs.failed-jobs }}"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: "Upload notification state"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: "slack-state-tests-${{ github.ref_name }}-amd"
-          path: ./slack-state/
-          retention-days: 7
-          overwrite: true
-      - name: "Notify Slack (new/changed failures)"
-        if: steps.notification.outputs.action == 'notify_new'
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d  # v4.0.0
-        with:
-          method: chat.postMessage
-          token: ${{ env.SLACK_BOT_TOKEN }}
-          # yamllint disable rule:line-length
-          payload: |
-            channel: "internal-airflow-ci-cd"
-            text: "🚨 Failure Alert: Scheduled CI (${{ needs.build-info.outputs.platform }}) on branch *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: "🚨 Failure Alert: Scheduled CI (${{ needs.build-info.outputs.platform }}) on *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
-          # yamllint enable rule:line-length
-      - name: "Notify Slack (still not fixed)"
-        if: steps.notification.outputs.action == 'notify_reminder'
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d  # v4.0.0
-        with:
-          method: chat.postMessage
-          token: ${{ env.SLACK_BOT_TOKEN }}
-          # yamllint disable rule:line-length
-          payload: |
-            channel: "internal-airflow-ci-cd"
-            text: "🚨🔁 Still not fixed: Scheduled CI (${{ needs.build-info.outputs.platform }}) on branch *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: "🚨🔁 Still not fixed: Scheduled CI (${{ needs.build-info.outputs.platform }}) on *${{ github.ref_name }}*\n\nFailing jobs:\n${{ steps.get-failures.outputs.failed-jobs-text }}\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the failure log>"
-          # yamllint enable rule:line-length
-      - name: "Notify Slack (all tests passing)"
-        if: steps.notification.outputs.action == 'notify_recovery'
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d  # v4.0.0
-        with:
-          method: chat.postMessage
-          token: ${{ env.SLACK_BOT_TOKEN }}
-          # yamllint disable rule:line-length
-          payload: |
-            channel: "internal-airflow-ci-cd"
-            text: "✅ All tests passing: Scheduled CI (${{ needs.build-info.outputs.platform }}) on branch *${{ github.ref_name }}*\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the run log>"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: "✅ All tests passing: Scheduled CI (${{ needs.build-info.outputs.platform }}) on *${{ github.ref_name }}*\n\n*Details:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View the run log>"
-          # yamllint enable rule:line-length
+        done
 
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   summarize-warnings:
     timeout-minutes: 15
     name: "Summarize warnings"
     needs:
-      - build-info
-      - tests-mysql-core
-      - tests-mysql-providers
-      - tests-non-db-core
-      - tests-non-db-providers
-      - tests-postgres-core
-      - tests-postgres-providers
-      - tests-sqlite-core
-      - tests-sqlite-providers
-      - tests-task-sdk
-      - tests-airflow-ctl
-      - tests-special
-      - tests-with-lowest-direct-resolution-core
-      - tests-with-lowest-direct-resolution-providers
+    - build-info
+    - tests-mysql-core
+    - tests-mysql-providers
+    - tests-non-db-core
+    - tests-non-db-providers
+    - tests-postgres-core
+    - tests-postgres-providers
+    - tests-sqlite-core
+    - tests-sqlite-providers
+    - tests-task-sdk
+    - tests-airflow-ctl
+    - tests-special
+    - tests-with-lowest-direct-resolution-core
+    - tests-with-lowest-direct-resolution-providers
     runs-on: ${{ fromJSON(needs.build-info.outputs.runner-type) }}
     if: needs.build-info.outputs.run-unit-tests == 'true'
     steps:
-      - name: "Cleanup repo"
-        shell: bash
-        run: sudo rm -rf ${GITHUB_WORKSPACE}/*
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          observables_continue_on_error: false
-          lfs: false
-          persist-credentials: false
-      - name: Assert instrumentation is live
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-          test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
+    - name: "Cleanup repo"
+      shell: bash
+      run: sudo rm -rf ${GITHUB_WORKSPACE}/*
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: crashappsec/action-checkout@e9ff46a65f6403d9d88b87d248c3dfa41550ec75
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
+        persist-credentials: false
+    - name: "Free up disk space"
+      shell: bash
+      run: ./scripts/tools/free_up_disk_space.sh
+    - name: "Download all test warning artifacts from the current build"
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c    # v8.0.1
+      with:
+        path: ./artifacts
+        pattern: test-warnings-*
+    - name: "Setup python"
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97    # v7.0.0
+      with:
+        python-version: "${{ inputs.default-python-version }}"
+    - name: "Summarize all warnings"
+      run: |
+        ./scripts/ci/testing/summarize_captured_warnings.py ./artifacts \
+          --pattern "**/warnings-*.txt" \
+          --output ./files
+    - name: "Upload artifact for summarized warnings"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a    # v7.0.1
+      with:
+        name: "test-summarized-warnings"
+        path: ./files/warn-summary-*.txt
+        retention-days: 7
+        if-no-files-found: ignore
+        overwrite: true
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
-      - name: "Free up disk space"
-        shell: bash
-        run: ./scripts/tools/free_up_disk_space.sh
-      - name: "Download all test warning artifacts from the current build"
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          path: ./artifacts
-          pattern: test-warnings-*
-      - name: "Setup python"
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: "${{ inputs.default-python-version }}"
-      - name: "Summarize all warnings"
-        run: |
-          ./scripts/ci/testing/summarize_captured_warnings.py ./artifacts \
-            --pattern "**/warnings-*.txt" \
-            --output ./files
-      - name: "Upload artifact for summarized warnings"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: "test-summarized-warnings"
-          path: ./files/warn-summary-*.txt
-          retention-days: 7
-          if-no-files-found: ignore
-          overwrite: true
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
