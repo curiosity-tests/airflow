@@ -19,8 +19,7 @@
 # https://github.com/actions/stale
 name: 'Close stale PRs & Issues'
 on:  # yamllint disable-line rule:truthy
-  schedule:
-    - cron: '0 0 * * *'
+  workflow_dispatch:
 permissions:
   # All other permissions are set to none
   pull-requests: write

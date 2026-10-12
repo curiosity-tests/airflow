@@ -18,9 +18,6 @@
 ---
 name: "Scheduled verify release calendar"
 on:  # yamllint disable-line rule:truthy
-  schedule:
-    # Daily at 06:00 UTC
-    - cron: '0 6 * * *'
   workflow_dispatch:
 permissions:
   contents: read

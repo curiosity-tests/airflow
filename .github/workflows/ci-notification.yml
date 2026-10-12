@@ -18,8 +18,6 @@
 ---
 name: "CI Notification"
 on:  # yamllint disable-line rule:truthy
-  schedule:
-    - cron: '0 6,17 * * *'
   workflow_dispatch:
 permissions:
   # All other permissions are set to none by default
